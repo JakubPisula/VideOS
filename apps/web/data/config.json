@@ -1,0 +1,35 @@
+{
+  "notionToken": "",
+  "frameioToken": "",
+  "nextcloudUrl": "",
+  "selectedDatabase": "2cb69636-89fc-81f1-bead-eb226ccb8ae9",
+  "notionProperties": [
+    "Szablon Zadań",
+    "Frame.io",
+    "Last edited time",
+    "Delay",
+    "NextCloud",
+    "Zakończenie",
+    "Nazwa Zadania",
+    "Tags",
+    "Assignee",
+    "Status",
+    "Termin",
+    "Priorytet",
+    "Sub-tasks",
+    "Parent-task"
+  ],
+  "mappings": [
+    {
+      "id": 1,
+      "notionProperty": "Nazwa Zadania",
+      "frameioField": "Folder Status"
+    },
+    {
+      "id": 2,
+      "notionProperty": "Nazwa Zadania",
+      "frameioField": "Project Name"
+    }
+  ],
+  "syncInterval": 200
+}
