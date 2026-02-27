@@ -30,3 +30,7 @@ yarn-error.log*
 # OS files
 .DS_Store
 Thumbs.db
+
+# Runtime data - sensitive, never commit
+apps/web/data/config.json
+apps/web/data/projects.json
