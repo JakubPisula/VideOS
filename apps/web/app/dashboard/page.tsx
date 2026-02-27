@@ -1,92 +1,228 @@
-import React from 'react';
-import FileUploadArea from '@/components/FileUploadArea';
+"use client";
 
-export default function DashboardPage() {
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+
+interface ProjectData {
+    id: string;
+    clientName: string;
+    projectName: string;
+    briefSubmitted: boolean;
+    briefSubmittedAt?: string;
+    properties: Record<string, string>;
+}
+
+interface BriefField {
+    notionProperty: string;
+    label: string;
+    type: string;
+    required: boolean;
+}
+
+const STATUS_COLORS: Record<string, string> = {
+    'Not Started': 'bg-gray-500/20 text-gray-300',
+    'In Progress': 'bg-blue-500/20 text-blue-300',
+    'In Editing Phase': 'bg-yellow-500/20 text-yellow-300',
+    'Review': 'bg-purple-500/20 text-purple-300',
+    'Done': 'bg-emerald-500/20 text-emerald-300',
+    'Cancelled': 'bg-red-500/20 text-red-300',
+};
+
+function DashboardContent() {
+    const searchParams = useSearchParams();
+    const [projectId, setProjectId] = useState(searchParams.get('projectId') || '');
+    const [project, setProject] = useState<ProjectData | null>(null);
+    const [briefFields, setBriefFields] = useState<BriefField[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [searched, setSearched] = useState(false);
+
+    const doSearch = useCallback(async (id: string) => {
+        if (!id.trim()) return;
+        setLoading(true);
+        setError('');
+        setProject(null);
+        setSearched(true);
+        try {
+            const res = await fetch(`/api/projects/${id.trim()}/brief`);
+            const data = await res.json();
+            if (!res.ok) { setError(data.error || 'Project not found.'); return; }
+            setProject(data.project);
+            setBriefFields(data.briefFields);
+        } catch {
+            setError('Network error. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    // Auto-load when arriving from /register with ?projectId=
+    useEffect(() => {
+        const id = searchParams.get('projectId');
+        if (id) {
+            setProjectId(id);
+            doSearch(id);
+        }
+    }, [searchParams, doSearch]);
+
+    const handleSearch = useCallback(async (e: React.FormEvent) => {
+        e.preventDefault();
+        doSearch(projectId);
+    }, [projectId, doSearch]);
+
+    // ── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="min-h-screen p-8 md:p-16">
-            <header className="mb-12 flex justify-between items-center">
-                <div>
-                    <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">Client Portal</h1>
-                    <p className="text-gray-400 mt-2">Manage your creative projects and provide feedback.</p>
+        <div className="min-h-screen py-16 px-6">
+            <div className="max-w-2xl mx-auto">
+
+                {/* Header */}
+                <div className="text-center mb-12">
+                    <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 mb-2">
+                        Client Portal
+                    </h1>
+                    <p className="text-gray-400">Enter your Project ID to view your project status and details.</p>
                 </div>
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 shadow-lg border border-white/20 flex items-center justify-center font-bold text-lg">
-                    JD
-                </div>
-            </header>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 flex flex-col gap-8">
-                    <div className="glass-panel p-8 rounded-3xl">
-                        <h2 className="text-2xl font-semibold mb-2">Active Project: "Summer Campaign 2026"</h2>
-                        <div className="flex gap-4 mb-6">
-                            <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs font-medium border border-yellow-500/30">
-                                In Editing Phase
-                            </span>
-                            <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full text-xs font-medium border border-emerald-500/30">
-                                Notion Synced
-                            </span>
-                        </div>
+                {/* Search */}
+                <form onSubmit={handleSearch} className="flex gap-3 mb-10">
+                    <input
+                        type="text"
+                        value={projectId}
+                        onChange={e => setProjectId(e.target.value.toUpperCase())}
+                        className="glass-input flex-1 px-4 py-3 rounded-xl text-sm"
+                        placeholder="PRJ-123456"
+                        maxLength={12}
+                    />
+                    <button
+                        type="submit"
+                        disabled={loading || !projectId.trim()}
+                        className="btn-primary px-6 py-3 rounded-xl font-medium disabled:opacity-50"
+                    >
+                        {loading ? 'Searching…' : 'Find Project'}
+                    </button>
+                </form>
 
-                        <p className="text-gray-300 text-sm leading-relaxed max-w-2xl mb-8">
-                            We've received your brief and source files. The initial rough cut is currently being assembled according to your specifications.
-                            You will be notified here once the first review link is ready on Frame.io.
-                        </p>
-
-                        <FileUploadArea />
+                {/* Error */}
+                {error && (
+                    <div className="text-center py-12">
+                        <div className="text-5xl mb-4">🔍</div>
+                        <p className="text-red-400 font-medium">{error}</p>
+                        <p className="text-gray-500 text-sm mt-2">Double-check the ID sent by your project manager.</p>
                     </div>
+                )}
 
-                    <div className="glass-panel p-8 rounded-3xl border-l-4 border-l-blue-500">
-                        <h3 className="text-xl font-semibold mb-4 text-white">Frame.io Review Dashboard</h3>
-                        <p className="text-sm text-gray-400 mb-6">Review your final renders directly here once they are published.</p>
-                        <div className="aspect-video bg-black/60 rounded-xl flex items-center justify-center border border-white/5 relative group cursor-not-allowed">
-                            <p className="text-gray-500 font-medium z-10">No videos ready for review yet.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex flex-col gap-6">
-                    <div className="glass-panel p-8 rounded-3xl">
-                        <h3 className="text-lg font-semibold mb-4 text-white">Project Timeline</h3>
-                        <div className="flex flex-col gap-6">
-                            <div className="flex items-start gap-4">
-                                <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.8)] mt-1.5 shrink-0"></div>
+                {/* Project Card */}
+                {project && (
+                    <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+                        {/* Header Card */}
+                        <div className="glass-panel p-8 rounded-3xl">
+                            <div className="flex items-start justify-between mb-4">
                                 <div>
-                                    <h4 className="font-medium text-sm text-white">Brief Submitted</h4>
-                                    <p className="text-xs text-gray-400 mt-1">Oct 24, 2026</p>
+                                    <p className="text-gray-400 text-sm mb-1">Welcome back,</p>
+                                    <h2 className="text-2xl font-bold text-white">{project.clientName}</h2>
+                                    <p className="text-gray-300 mt-1">{project.projectName}</p>
+                                </div>
+                                <span className="font-mono text-xs text-gray-500 bg-white/5 px-3 py-1.5 rounded-full">{project.id}</span>
+                            </div>
+
+                            {/* Status */}
+                            {project.properties.Status && (
+                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.properties.Status] || 'bg-white/10 text-gray-300'}`}>
+                                    {project.properties.Status}
+                                </span>
+                            )}
+
+                            {/* Brief CTA */}
+                            <div className={`mt-6 p-4 rounded-2xl border ${project.briefSubmitted ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-orange-500/20 bg-orange-500/5'}`}>
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <p className={`text-sm font-medium ${project.briefSubmitted ? 'text-emerald-300' : 'text-orange-300'}`}>
+                                            {project.briefSubmitted ? '✓ Brief Submitted' : '⚡ Brief Required'}
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-0.5">
+                                            {project.briefSubmitted
+                                                ? `Received ${project.briefSubmittedAt ? new Date(project.briefSubmittedAt).toLocaleDateString('pl-PL') : ''}`
+                                                : 'Please fill in your project details'}
+                                        </p>
+                                    </div>
+                                    {!project.briefSubmitted && briefFields.length > 0 && (
+                                        <a
+                                            href={`/brief/${project.id}`}
+                                            className="btn-primary px-4 py-2 rounded-xl text-sm font-medium"
+                                        >
+                                            Fill Brief →
+                                        </a>
+                                    )}
+                                    {project.briefSubmitted && (
+                                        <a
+                                            href={`/brief/${project.id}`}
+                                            className="px-4 py-2 rounded-xl text-sm border border-white/10 hover:bg-white/5 transition"
+                                        >
+                                            View / Edit →
+                                        </a>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex items-start gap-4">
-                                <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,0.8)] mt-1.5 shrink-0"></div>
-                                <div>
-                                    <h4 className="font-medium text-sm text-white">Files Uploaded to Cloud</h4>
-                                    <p className="text-xs text-gray-400 mt-1">Oct 25, 2026</p>
-                                </div>
-                            </div>
-                            <div className="flex items-start gap-4 opacity-50 pl-1.5 border-l border-white/10 ml-[5px]">
-                                <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0 -ml-[5px]"></div>
-                                <div>
-                                    <h4 className="font-medium text-sm text-white">First Cut Review</h4>
-                                    <p className="text-xs text-gray-400 mt-1">Expected: Nov 02, 2026</p>
-                                </div>
-                            </div>
                         </div>
-                    </div>
 
-                    <div className="glass-panel p-8 rounded-3xl">
-                        <h3 className="text-lg font-semibold mb-4 text-white">Cloud Storage Links</h3>
-                        <div className="space-y-4">
-                            <a href="#" className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors">
-                                <span className="text-sm font-medium">Source Files (Nextcloud)</span>
-                                <span className="text-blue-400 text-xs text-right">Open &rarr;</span>
-                            </a>
-                            <a href="#" className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 transition-colors">
-                                <span className="text-sm font-medium">Deliverables Folder</span>
-                                <span className="text-blue-400 text-xs text-right">Open &rarr;</span>
-                            </a>
-                        </div>
+                        {/* Project Properties */}
+                        {Object.keys(project.properties).length > 0 && (
+                            <div className="glass-panel p-8 rounded-3xl">
+                                <h3 className="text-lg font-semibold mb-4">Project Details</h3>
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                    {Object.entries(project.properties)
+                                        .filter(([, val]) => val && val.trim() !== '')
+                                        .map(([key, val]) => (
+                                            <div key={key} className="bg-white/5 rounded-xl p-3">
+                                                <p className="text-gray-400 text-xs mb-1">{key}</p>
+                                                {val.startsWith('http') ? (
+                                                    <a href={val} target="_blank" className="text-blue-400 hover:underline truncate block">{val}</a>
+                                                ) : (
+                                                    <p className="text-white font-medium truncate">{val}</p>
+                                                )}
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Frame.io link if available */}
+                        {project.properties['Frame.io'] && (
+                            <div className="glass-panel p-6 rounded-3xl border-l-4 border-l-blue-500">
+                                <h3 className="text-lg font-semibold mb-2">Review Link</h3>
+                                <p className="text-gray-400 text-sm mb-4">Your video is ready for review on Frame.io.</p>
+                                <a
+                                    href={project.properties['Frame.io']}
+                                    target="_blank"
+                                    className="btn-primary px-6 py-3 rounded-xl font-medium inline-block"
+                                >
+                                    Open Frame.io Review →
+                                </a>
+                            </div>
+                        )}
                     </div>
-                </div>
+                )}
+
+                {/* Empty state before search */}
+                {!searched && !project && (
+                    <div className="text-center py-12 text-gray-600">
+                        <div className="text-4xl mb-4">📋</div>
+                        <p className="text-sm">Your Project ID was sent by your project manager via email.</p>
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+export default function ClientDashboardPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="text-gray-400 animate-pulse">Loading…</div>
+            </div>
+        }>
+            <DashboardContent />
+        </Suspense>
     );
 }

@@ -14,11 +14,22 @@ export async function GET() {
     try {
         const config = getConfig();
 
+        if (!config) {
+            return NextResponse.json({
+                firstRun: true,
+                notionConfigured: false,
+                frameioConfigured: false,
+                nextcloudConfigured: false,
+                syncInterval: 30
+            });
+        }
+
         return NextResponse.json({
-            notionConfigured: !!(config && config.notionToken && config.selectedDatabase),
-            frameioConfigured: !!(config && config.frameioToken),
-            nextcloudConfigured: !!(config && config.nextcloudUrl),
-            syncInterval: config && config.syncInterval ? Number(config.syncInterval) : 30
+            firstRun: false,
+            notionConfigured: !!(config.notionToken && config.selectedDatabase),
+            frameioConfigured: !!(config.frameioToken),
+            nextcloudConfigured: !!(config.nextcloudUrl),
+            syncInterval: config.syncInterval ? Number(config.syncInterval) : 30
         });
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });

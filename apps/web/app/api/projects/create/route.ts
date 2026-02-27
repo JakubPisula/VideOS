@@ -138,18 +138,32 @@ export async function POST(request: Request) {
             }
         }
 
-        // Create the property structure dynamically based on the mappings
-        const localProperties: any = {};
+        // Build properties that mirror the Notion schema exactly
+        // Every imported property starts as empty, then we fill known values
+        const localProperties: Record<string, string> = {};
+
+        if (config.notionProperties && Array.isArray(config.notionProperties)) {
+            for (const prop of config.notionProperties) {
+                const propName = typeof prop === 'string' ? prop : prop.name;
+                const propType = typeof prop === 'string' ? 'rich_text' : prop.type;
+
+                // Initialise all to empty
+                localProperties[propName] = '';
+
+                // Auto-fill the title field
+                if (propType === 'title') {
+                    localProperties[propName] = `${clientName} | ${projectName}`;
+                }
+            }
+        }
+
+        // Also apply any mapping overrides (status defaults etc.)
         if (config.mappings) {
             for (const map of config.mappings) {
-                if (!map.notionProperty || !map.frameioField) continue;
-
-                let val = '';
-                if (map.frameioField === 'Project Name') val = `${clientName} | ${projectName}`;
-                if (map.frameioField === 'Description') val = description || '';
-                if (map.frameioField === 'Folder Status') val = 'Not Started';
-
-                if (val) localProperties[map.notionProperty] = val;
+                if (!map.notionProperty) continue;
+                if (map.frameioField === 'Project Name') {
+                    localProperties[map.notionProperty] = `${clientName} | ${projectName}`;
+                }
             }
         }
 
@@ -176,6 +190,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
             success: true,
             message: 'Project created successfully!',
+            projectId: newProjectEntry.id,
             project: newProjectEntry,
             frameio: frameioResponse ? 'Created' : 'Skipped/Error',
             notion: notionResponse ? 'Created' : 'Skipped/Error'

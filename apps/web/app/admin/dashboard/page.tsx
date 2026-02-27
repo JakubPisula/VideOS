@@ -1,86 +1,162 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
+// ── Types ──────────────────────────────────────────────────────────────────
+interface Statuses {
+    firstRun: boolean;
+    notionConfigured: boolean;
+    frameioConfigured: boolean;
+    nextcloudConfigured: boolean;
+    syncInterval: number;
+}
+
+interface Project {
+    id: string;
+    clientName: string;
+    projectName: string;
+    description: string;
+    status: string;
+    createdAt: string;
+    notionSynced: boolean;
+    frameioSynced: boolean;
+    notionId?: string;
+    notionLastEditedTime?: string;
+    properties?: Record<string, string>;
+}
+
+interface CreateResult {
+    success: boolean;
+    message: string;
+}
+
+// ── Skeleton row ───────────────────────────────────────────────────────────
+function SkeletonRow() {
+    return (
+        <tr className="border-b border-white/5 animate-pulse">
+            <td className="py-4"><div className="h-4 w-20 bg-white/10 rounded" /></td>
+            <td className="py-4">
+                <div className="h-4 w-28 bg-white/10 rounded mb-1" />
+                <div className="h-3 w-20 bg-white/5 rounded" />
+            </td>
+            <td className="py-4"><div className="h-5 w-16 bg-white/10 rounded-full" /></td>
+            <td className="py-4"><div className="flex gap-2"><div className="w-3 h-3 rounded-full bg-white/10" /><div className="w-3 h-3 rounded-full bg-white/10" /></div></td>
+            <td className="py-4"><div className="h-4 w-16 bg-white/5 rounded" /></td>
+        </tr>
+    );
+}
+
+const MAX_DEBUG_LOGS = 100;
+
+// ── Main Page ──────────────────────────────────────────────────────────────
 export default function AdminDashboardPage() {
-    const [statuses, setStatuses] = useState({
+
+    const [statuses, setStatuses] = useState<Statuses>({
+        firstRun: false,
         notionConfigured: false,
         frameioConfigured: false,
         nextcloudConfigured: false,
-        syncInterval: 30
+        syncInterval: 30,
     });
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [isLoadingProjects, setIsLoadingProjects] = useState(true);
 
-    // Local projects state
-    const [projects, setProjects] = useState<any[]>([]);
-
+    // Create modal
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [newClientName, setNewClientName] = useState('');
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectDesc, setNewProjectDesc] = useState('');
     const [isCreating, setIsCreating] = useState(false);
-    const [createResult, setCreateResult] = useState<{ success?: boolean, message?: string } | null>(null);
+    const [createResult, setCreateResult] = useState<CreateResult | null>(null);
 
-    // Debug Console States
+    // Debug console
     const [isDebugMode, setIsDebugMode] = useState(false);
     const [debugLogs, setDebugLogs] = useState<string[]>([]);
     const [isSyncingId, setIsSyncingId] = useState<string | null>(null);
 
-    const logDebug = (msg: string) => {
-        setDebugLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
-    };
+    // Ref to track mounted state (prevent state updates after unmount)
+    const mountedRef = useRef(true);
+    useEffect(() => { return () => { mountedRef.current = false; }; }, []);
 
-    const loadData = () => {
-        // Fetch statuses
-        fetch('/api/status')
-            .then(res => res.json())
-            .then(data => {
-                if (data && !data.error) setStatuses(data);
-            })
-            .catch(err => console.error("Could not fetch statuses", err));
+    // ── Helpers ─────────────────────────────────────────────────────────────
+    const logDebug = useCallback((msg: string) => {
+        const entry = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        setDebugLogs(prev => [entry, ...prev].slice(0, MAX_DEBUG_LOGS));
+    }, []);
 
-        // Fetch local projects
+    const batchLogDebug = useCallback((lines: string[]) => {
+        setDebugLogs(prev => [...lines, ...prev].slice(0, MAX_DEBUG_LOGS));
+    }, []);
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+    const loadProjects = useCallback(() => {
         fetch('/api/projects')
             .then(res => res.json())
             .then(data => {
+                if (!mountedRef.current) return;
                 if (Array.isArray(data)) setProjects(data);
             })
-            .catch(err => console.error("Could not fetch projects", err));
-    };
+            .catch(() => { })
+            .finally(() => {
+                if (mountedRef.current) setIsLoadingProjects(false);
+            });
+    }, []);
+
+    const loadStatuses = useCallback(() => {
+        fetch('/api/status')
+            .then(res => res.json())
+            .then((data: Statuses) => {
+                if (!mountedRef.current) return;
+                if (data.firstRun) {
+                    window.location.href = '/setup';
+                    return;
+                }
+                setStatuses(data);
+            })
+            .catch(() => { });
+    }, []);
+
+    const loadData = useCallback(() => {
+        loadStatuses();
+        loadProjects();
+    }, [loadStatuses, loadProjects]);
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [loadData]);
 
+    // ── Background Notion sync ───────────────────────────────────────────────
     useEffect(() => {
         if (!statuses.notionConfigured || !statuses.syncInterval) return;
 
-        const intervalId = setInterval(async () => {
-            try {
-                const res = await fetch('/api/notion/verify-changes', { method: 'POST' });
-                const data = await res.json();
+        const intervalId = setInterval(() => {
+            // Skip if no projects or if a manual sync is in progress
+            if (!mountedRef.current) return;
 
-                if (data.logs && Array.isArray(data.logs)) {
-                    data.logs.forEach((log: string) => setDebugLogs(prev => [log, ...prev]));
-                }
+            const controller = new AbortController();
 
-                if (res.ok && data.message && data.message.includes('Applied')) {
-                    const match = data.message.match(/Applied (\d+)/);
-                    if (match && parseInt(match[1]) > 0) {
-                        // Refresh data if something was applied
-                        fetch('/api/projects')
-                            .then(r => r.json())
-                            .then(d => { if (Array.isArray(d)) setProjects(d); });
+            fetch('/api/notion/verify-changes', { method: 'POST', signal: controller.signal })
+                .then(res => res.json())
+                .then(data => {
+                    if (!mountedRef.current) return;
+                    if (data.logs?.length > 0) batchLogDebug(data.logs);
+                    // Only refresh project list if actual changes were applied
+                    if (data.message?.includes('Applied')) {
+                        const n = parseInt(data.message.match(/Applied (\d+)/)?.[1] || '0');
+                        if (n > 0) loadProjects();
                     }
-                }
-            } catch (err) {
-                // Ignore background task errors
-            }
+                })
+                .catch(() => { });
+
+            // Clean up the fetch if the interval fires again before the previous completes
+            return () => controller.abort();
         }, statuses.syncInterval * 1000);
 
         return () => clearInterval(intervalId);
-    }, [statuses.notionConfigured, statuses.syncInterval]);
+    }, [statuses.notionConfigured, statuses.syncInterval, batchLogDebug, loadProjects]);
 
-    const handleCreateProject = async (e: React.FormEvent) => {
+    // ── Handlers ─────────────────────────────────────────────────────────────
+    const handleCreateProject = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         setIsCreating(true);
         setCreateResult(null);
@@ -92,14 +168,13 @@ export default function AdminDashboardPage() {
                 body: JSON.stringify({
                     clientName: newClientName,
                     projectName: newProjectName,
-                    description: newProjectDesc
-                })
+                    description: newProjectDesc,
+                }),
             });
             const data = await res.json();
-
             if (res.ok) {
                 setCreateResult({ success: true, message: data.message });
-                loadData(); // Refresh the table
+                loadProjects();
                 setTimeout(() => {
                     setIsCreateModalOpen(false);
                     setCreateResult(null);
@@ -110,68 +185,54 @@ export default function AdminDashboardPage() {
             } else {
                 setCreateResult({ success: false, message: data.error || 'Failed to create project' });
             }
-        } catch (error: any) {
+        } catch {
             setCreateResult({ success: false, message: 'Network error occurred' });
         } finally {
             setIsCreating(false);
         }
-    };
+    }, [newClientName, newProjectName, newProjectDesc, loadProjects]);
 
-    const handleSyncProject = async (projectId: string) => {
+    const handleSyncProject = useCallback(async (projectId: string) => {
         setIsSyncingId(projectId);
-        logDebug(`Initiating manual sync for project ${projectId}...`);
-
+        logDebug(`Initiating manual sync for project ${projectId}…`);
         try {
             const res = await fetch('/api/projects/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ projectId })
+                body: JSON.stringify({ projectId }),
             });
-
             const data = await res.json();
-
-            if (data.logs && Array.isArray(data.logs)) {
-                data.logs.forEach((log: string) => setDebugLogs(prev => [log, ...prev]));
-            }
-
+            if (data.logs?.length > 0) batchLogDebug(data.logs);
             if (res.ok) {
-                logDebug(`Sync completed for ${projectId}. Refreshing data...`);
-                loadData();
+                logDebug(`Sync completed for ${projectId}. Refreshing…`);
+                loadProjects();
             } else {
                 logDebug(`Sync failed for ${projectId}: ${data.error}`);
             }
-        } catch (error: any) {
-            logDebug(`Network error during sync: ${error.message}`);
+        } catch (err: any) {
+            logDebug(`Network error during sync: ${err.message}`);
         } finally {
             setIsSyncingId(null);
         }
-    };
+    }, [logDebug, batchLogDebug, loadProjects]);
 
-    const handleVerifyNotionChanges = async () => {
+    const handleVerifyNotionChanges = useCallback(async () => {
         setIsSyncingId('verify-all');
-        logDebug('Verifying all projects for remote Notion changes...');
-
+        logDebug('Verifying all projects for remote Notion changes…');
         try {
             const res = await fetch('/api/notion/verify-changes', { method: 'POST' });
             const data = await res.json();
-
-            if (data.logs && Array.isArray(data.logs)) {
-                data.logs.forEach((log: string) => setDebugLogs(prev => [log, ...prev]));
-            }
-
-            if (res.ok) {
-                logDebug(data.message);
-                loadData();
-            } else {
-                logDebug(`Verification error: ${data.error}`);
-            }
-        } catch (error: any) {
-            logDebug(`Network error during verification: ${error.message}`);
+            if (data.logs?.length > 0) batchLogDebug(data.logs);
+            if (res.ok) { logDebug(data.message); loadProjects(); }
+            else logDebug(`Verification error: ${data.error}`);
+        } catch (err: any) {
+            logDebug(`Network error during verification: ${err.message}`);
         } finally {
             setIsSyncingId(null);
         }
-    };
+    }, [logDebug, batchLogDebug, loadProjects]);
 
+    // ── Render ───────────────────────────────────────────────────────────────
     return (
         <div className="min-h-screen p-8 md:p-16 relative">
             <header className="mb-12 flex justify-between items-center border-b border-white/10 pb-6">
@@ -180,11 +241,11 @@ export default function AdminDashboardPage() {
                     <p className="text-gray-400 mt-2">Manage your creative projects. Database synced with Notion.</p>
                 </div>
                 <div className="flex gap-4 items-center">
-                    <span className="text-sm text-emerald-400 font-medium flex items-center gap-2">
+                    <span className="text-sm font-medium flex items-center gap-2">
                         {statuses.notionConfigured ? (
-                            <><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Notion Connected</>
+                            <><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> <span className="text-emerald-400">Notion Connected</span></>
                         ) : (
-                            <><span className="w-2 h-2 rounded-full bg-red-400"></span> Notion Unconfigured</>
+                            <><span className="w-2 h-2 rounded-full bg-red-400" /> <span className="text-red-400">Notion Unconfigured</span></>
                         )}
                     </span>
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-orange-500 shadow-lg border border-white/20 flex items-center justify-center font-bold text-lg">
@@ -194,6 +255,7 @@ export default function AdminDashboardPage() {
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                {/* Main table */}
                 <div className="lg:col-span-3 flex flex-col gap-8">
                     <div className="glass-panel p-8 rounded-3xl">
                         <div className="flex justify-between items-center mb-6">
@@ -204,13 +266,13 @@ export default function AdminDashboardPage() {
                                     disabled={isSyncingId === 'verify-all'}
                                     className="text-sm border border-white/20 px-4 py-2 rounded-lg hover:bg-white/10 transition disabled:opacity-50"
                                 >
-                                    {isSyncingId === 'verify-all' ? 'Verifying...' : 'Force Notion Sync'}
+                                    {isSyncingId === 'verify-all' ? 'Verifying…' : 'Force Notion Sync'}
                                 </button>
                                 <button
-                                    onClick={() => setIsDebugMode(!isDebugMode)}
+                                    onClick={() => setIsDebugMode(v => !v)}
                                     className={`text-sm border px-4 py-2 rounded-lg transition ${isDebugMode ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-300' : 'border-white/20 hover:bg-white/10'}`}
                                 >
-                                    {isDebugMode ? 'Disable Debug Logs' : 'Enable API Debug Console'}
+                                    {isDebugMode ? 'Disable Debug Console' : 'Enable Debug Console'}
                                 </button>
                                 <button
                                     onClick={() => setIsCreateModalOpen(true)}
@@ -221,21 +283,22 @@ export default function AdminDashboardPage() {
                             </div>
                         </div>
 
+                        {/* Debug Console */}
                         {isDebugMode && (
                             <div className="mb-6 p-4 rounded-xl bg-black/50 border border-white/10 font-mono text-xs max-h-48 overflow-y-auto">
-                                <h3 className="text-yellow-400 mb-2 border-b border-white/5 pb-2">Debug Console Output:</h3>
-                                <div className="flex flex-col gap-1">
-                                    {debugLogs.length === 0 ? (
-                                        <span className="text-gray-500">Waiting for API events...</span>
-                                    ) : (
-                                        debugLogs.map((log, i) => (
-                                            <div key={i} className="text-gray-300">{log}</div>
-                                        ))
-                                    )}
+                                <div className="flex justify-between items-center mb-2 border-b border-white/5 pb-2">
+                                    <h3 className="text-yellow-400">Debug Console</h3>
+                                    <button onClick={() => setDebugLogs([])} className="text-gray-500 hover:text-gray-300 text-xs">Clear</button>
                                 </div>
+                                {debugLogs.length === 0 ? (
+                                    <span className="text-gray-500">Waiting for API events…</span>
+                                ) : (
+                                    debugLogs.map((log, i) => <div key={i} className="text-gray-300 leading-relaxed">{log}</div>)
+                                )}
                             </div>
                         )}
 
+                        {/* Table */}
                         <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                                 <thead>
@@ -243,33 +306,36 @@ export default function AdminDashboardPage() {
                                         <th className="pb-4 font-medium">Project ID</th>
                                         <th className="pb-4 font-medium">Client & Project</th>
                                         <th className="pb-4 font-medium">Status</th>
-                                        <th className="pb-4 font-medium">Sync Status</th>
+                                        <th className="pb-4 font-medium">Sync</th>
                                         <th className="pb-4 font-medium">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="text-sm">
-                                    {projects.length === 0 ? (
+                                    {isLoadingProjects ? (
+                                        <>{[1, 2, 3].map(i => <SkeletonRow key={i} />)}</>
+                                    ) : projects.length === 0 ? (
                                         <tr>
-                                            <td colSpan={5} className="py-8 text-center text-gray-500">No projects created yet. Click "+ New Project" to start.</td>
+                                            <td colSpan={5} className="py-12 text-center text-gray-500">
+                                                No projects yet.{' '}
+                                                <button onClick={() => setIsCreateModalOpen(true)} className="text-blue-400 hover:underline">Create your first →</button>
+                                            </td>
                                         </tr>
                                     ) : (
                                         projects.map(project => (
-                                            <tr key={project.id} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
-                                                <td className="py-4 font-mono text-blue-400">{project.id}</td>
+                                            <tr key={project.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                                <td className="py-4 font-mono text-blue-400 text-xs">{project.id}</td>
                                                 <td className="py-4">
                                                     <div className="font-medium text-white">{project.clientName}</div>
                                                     <div className="text-xs text-gray-400">{project.projectName}</div>
                                                 </td>
-                                                <td className="py-4"><span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs font-medium">{project.status}</span></td>
-                                                <td className="py-4 flex gap-2 items-center h-full pt-6">
-                                                    {project.notionSynced ?
-                                                        <span title="Notion Success" className="w-3 h-3 rounded-full bg-emerald-500"></span> :
-                                                        <span title="Notion Failed" className="w-3 h-3 rounded-full bg-red-500"></span>
-                                                    }
-                                                    {project.frameioSynced ?
-                                                        <span title="Frame.io Success" className="w-3 h-3 rounded-full bg-blue-500"></span> :
-                                                        <span title="Frame.io Failed" className="w-3 h-3 rounded-full bg-red-500"></span>
-                                                    }
+                                                <td className="py-4">
+                                                    <span className="px-3 py-1 bg-yellow-500/20 text-yellow-300 rounded-full text-xs font-medium">{project.status}</span>
+                                                </td>
+                                                <td className="py-4">
+                                                    <div className="flex gap-2 items-center">
+                                                        <span title={project.notionSynced ? 'Notion OK' : 'Notion Failed'} className={`w-3 h-3 rounded-full ${project.notionSynced ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                                                        <span title={project.frameioSynced ? 'Frame.io OK' : 'Frame.io Failed'} className={`w-3 h-3 rounded-full ${project.frameioSynced ? 'bg-blue-500' : 'bg-red-500'}`} />
+                                                    </div>
                                                 </td>
                                                 <td className="py-4">
                                                     <div className="flex gap-2">
@@ -277,14 +343,21 @@ export default function AdminDashboardPage() {
                                                             <button
                                                                 onClick={() => handleSyncProject(project.id)}
                                                                 disabled={isSyncingId === project.id}
-                                                                className="p-2 bg-yellow-500/10 text-yellow-400 rounded-lg hover:bg-yellow-500/20 transition disabled:opacity-50"
-                                                                title="Force Resync"
+                                                                className="px-3 py-1 bg-yellow-500/10 text-yellow-400 rounded-lg hover:bg-yellow-500/20 transition disabled:opacity-50 text-xs"
                                                             >
-                                                                {isSyncingId === project.id ? 'Syncing...' : 'Resync API'}
+                                                                {isSyncingId === project.id ? 'Syncing…' : 'Resync'}
                                                             </button>
                                                         )}
-                                                        <a href="#" className="p-2 bg-white/5 rounded-lg hover:bg-blue-500/20 hover:text-blue-400 transition" title="Open Notion Record">Notion</a>
-                                                        <a href="#" className="p-2 bg-white/5 rounded-lg hover:bg-emerald-500/20 hover:text-emerald-400 transition" title="Open Cloud Storage">Files</a>
+                                                        {project.notionId && (
+                                                            <a
+                                                                href={`https://notion.so/${project.notionId.replace(/-/g, '')}`}
+                                                                target="_blank"
+                                                                className="px-3 py-1 bg-white/5 rounded-lg hover:bg-white/10 transition text-xs"
+                                                                title="Open in Notion"
+                                                            >
+                                                                Notion ↗
+                                                            </a>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -296,21 +369,26 @@ export default function AdminDashboardPage() {
                     </div>
                 </div>
 
+                {/* Sidebar */}
                 <div className="flex flex-col gap-6">
                     <div className="glass-panel p-8 rounded-3xl">
                         <h3 className="text-lg font-semibold mb-4 text-white">System Status</h3>
                         <div className="flex flex-col gap-4 text-sm">
                             <div className="flex items-center justify-between">
                                 <span className="text-gray-400">Notion API</span>
-                                {statuses.notionConfigured ? <span className="text-emerald-400">Online & Mapped</span> : <span className="text-red-400">Missing Config</span>}
+                                {statuses.notionConfigured ? <span className="text-emerald-400">Online & Mapped</span> : <span className="text-red-400">Not Configured</span>}
                             </div>
                             <div className="flex items-center justify-between">
                                 <span className="text-gray-400">Frame.io</span>
                                 {statuses.frameioConfigured ? <span className="text-emerald-400">Authorized</span> : <span className="text-yellow-400">Unauthorized</span>}
                             </div>
                             <div className="flex items-center justify-between">
-                                <span className="text-gray-400">Nextcloud Storage</span>
-                                {statuses.nextcloudConfigured ? <span className="text-emerald-400">Linked</span> : <span className="text-red-400">Missing URL</span>}
+                                <span className="text-gray-400">Nextcloud</span>
+                                {statuses.nextcloudConfigured ? <span className="text-emerald-400">Linked</span> : <span className="text-red-400">Not Set</span>}
+                            </div>
+                            <div className="flex items-center justify-between border-t border-white/5 pt-3">
+                                <span className="text-gray-400">Auto-sync</span>
+                                <span className="text-gray-300 text-xs">every {statuses.syncInterval}s</span>
                             </div>
                         </div>
                     </div>
@@ -321,8 +399,9 @@ export default function AdminDashboardPage() {
                             <a href="/admin/settings" className="block text-left p-3 w-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 font-medium rounded-xl transition text-sm">
                                 Configure Integrations
                             </a>
-                            <button className="text-left p-3 bg-white/5 hover:bg-white/10 rounded-xl transition text-sm">Generate New Client Portal Link</button>
-                            <button className="text-left p-3 bg-white/5 hover:bg-white/10 rounded-xl transition text-sm">Review Time Tracking Logs</button>
+                            <a href="/setup" className="block text-left p-3 w-full bg-white/5 hover:bg-white/10 rounded-xl transition text-sm">
+                                Re-run Setup Wizard
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -331,59 +410,39 @@ export default function AdminDashboardPage() {
             {/* Create Project Modal */}
             {isCreateModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="glass-panel max-w-lg w-full p-8 rounded-3xl shadow-2xl scale-100 animate-in fade-in zoom-in-95 duration-200">
+                    <div className="glass-panel max-w-lg w-full p-8 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-2xl font-bold">New Client Project</h2>
-                            <button onClick={() => setIsCreateModalOpen(false)} className="text-gray-400 hover:text-white p-2 text-xl">&times;</button>
+                            <button onClick={() => { setIsCreateModalOpen(false); setCreateResult(null); }} className="text-gray-400 hover:text-white p-2 text-xl">&times;</button>
                         </div>
-
                         <p className="text-sm text-gray-400 mb-6">
-                            This will automatically provision a new Frame.io project workspace and synchronize a matching record into your mapped Notion Database.
+                            Automatically provisions a Frame.io project workspace and syncs a record to your Notion database.
                         </p>
-
                         <form onSubmit={handleCreateProject} className="flex flex-col gap-5">
                             <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-2">Client / Brand Name</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={newClientName}
-                                    onChange={(e) => setNewClientName(e.target.value)}
-                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                                    placeholder="e.g. Nike, TechCorp..."
-                                />
+                                <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)}
+                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="e.g. Nike, TechCorp…" />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-2">Project Name</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={newProjectName}
-                                    onChange={(e) => setNewProjectName(e.target.value)}
-                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                                    placeholder="e.g. Summer Commercial 2026"
-                                />
+                                <input type="text" required value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
+                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="e.g. Summer Commercial 2026" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Brief Description (Optional)</label>
-                                <textarea
-                                    value={newProjectDesc}
-                                    onChange={(e) => setNewProjectDesc(e.target.value)}
-                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm min-h-[100px]"
-                                    placeholder="Short summary of deliverables..."
-                                ></textarea>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">Brief Description (optional)</label>
+                                <textarea value={newProjectDesc} onChange={e => setNewProjectDesc(e.target.value)}
+                                    className="glass-input w-full px-4 py-3 rounded-xl text-sm min-h-[90px]" placeholder="Short summary of deliverables…" />
                             </div>
-
                             {createResult && (
                                 <div className={`p-4 rounded-xl text-sm ${createResult.success ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
                                     {createResult.message}
                                 </div>
                             )}
-
-                            <div className="mt-4 flex gap-3 justify-end">
+                            <div className="mt-2 flex gap-3 justify-end">
                                 <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-5 py-2.5 rounded-xl hover:bg-white/5 transition text-sm">Cancel</button>
                                 <button type="submit" disabled={isCreating} className="btn-primary px-6 py-2.5 rounded-xl text-sm font-medium disabled:opacity-50">
-                                    {isCreating ? 'Provisioning...' : 'Create Project'}
+                                    {isCreating ? 'Provisioning…' : 'Create Project'}
                                 </button>
                             </div>
                         </form>

@@ -21,7 +21,10 @@ export async function POST(request: Request) {
         }
 
         const data = await response.json();
-        const properties = Object.keys(data.properties);
+        // Return both name and type for each property
+        const properties = Object.entries(data.properties).map(
+            ([name, prop]: [string, any]) => ({ name, type: prop.type })
+        );
 
         return NextResponse.json({ properties });
     } catch (error: any) {

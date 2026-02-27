@@ -18,7 +18,7 @@ export default function AdminSettingsPage() {
     // New states for databases and properties
     const [availableDatabases, setAvailableDatabases] = useState<{ id: string, name: string }[]>([]);
     const [selectedDatabase, setSelectedDatabase] = useState('');
-    const [notionProperties, setNotionProperties] = useState<string[]>([]);
+    const [notionProperties, setNotionProperties] = useState<{ name: string, type: string }[]>([]);
 
     // Mapping state
     const [mappings, setMappings] = useState([
@@ -27,6 +27,9 @@ export default function AdminSettingsPage() {
     ]);
 
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+    // Brief Builder state
+    const [briefFields, setBriefFields] = useState<{ notionProperty: string; label: string; type: string; required: boolean }[]>([]);
 
     useEffect(() => {
         fetch('/api/settings')
@@ -40,6 +43,7 @@ export default function AdminSettingsPage() {
                     if (data.mappings && data.mappings.length > 0) setMappings(data.mappings);
                     if (data.notionProperties) setNotionProperties(data.notionProperties);
                     if (data.syncInterval) setSyncInterval(Number(data.syncInterval));
+                    if (data.briefFields) setBriefFields(data.briefFields);
                 }
             })
             .catch(() => console.log('No prior config found or error parsing'));
@@ -129,7 +133,7 @@ export default function AdminSettingsPage() {
     const handleSaveAll = async () => {
         setSaveStatus('saving');
         try {
-            const payload = { notionToken, frameioToken, nextcloudUrl, selectedDatabase, notionProperties, mappings, syncInterval };
+            const payload = { notionToken, frameioToken, nextcloudUrl, selectedDatabase, notionProperties, mappings, syncInterval, briefFields };
             const res = await fetch('/api/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -312,7 +316,7 @@ export default function AdminSettingsPage() {
                                         >
                                             <option value="" disabled>Select property...</option>
                                             {notionProperties.map(prop => (
-                                                <option key={prop} value={prop}>{prop}</option>
+                                                <option key={prop.name} value={prop.name}>{prop.name} ({prop.type})</option>
                                             ))}
                                         </select>
                                     </div>
@@ -357,6 +361,103 @@ export default function AdminSettingsPage() {
                 </div>
 
             </div>
+
+            {/* ── Brief Builder ─────────────────────────────────────────── */}
+            {notionProperties.length > 0 && (
+                <div className="glass-panel p-8 rounded-3xl mt-8">
+                    <div className="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 className="text-2xl font-semibold mb-1">Brief Builder</h2>
+                            <p className="text-gray-400 text-sm">
+                                Choose which fields your clients fill in on the brief form.
+                                Share a link like <code className="text-orange-300 bg-white/5 px-2 py-0.5 rounded text-xs">/brief/PRJ-XXXXXX</code>
+                            </p>
+                        </div>
+                        <span className="text-xs text-gray-500 bg-white/5 px-3 py-1.5 rounded-full">
+                            {briefFields.filter(f => f.notionProperty).length} fields active
+                        </span>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                        {notionProperties.map(prop => {
+                            const existing = briefFields.find(f => f.notionProperty === prop.name);
+                            const isActive = !!existing;
+                            return (
+                                <div
+                                    key={prop.name}
+                                    className={`flex items-center gap-4 p-4 rounded-xl border transition
+                                        ${isActive ? 'border-orange-500/30 bg-orange-500/5' : 'border-white/5 bg-white/2'}`}
+                                >
+                                    {/* Toggle */}
+                                    <input
+                                        type="checkbox"
+                                        checked={isActive}
+                                        onChange={() => {
+                                            if (isActive) {
+                                                setBriefFields(prev => prev.filter(f => f.notionProperty !== prop.name));
+                                            } else {
+                                                setBriefFields(prev => [...prev, {
+                                                    notionProperty: prop.name,
+                                                    label: prop.name,
+                                                    type: prop.type,
+                                                    required: false,
+                                                }]);
+                                            }
+                                        }}
+                                        className="w-4 h-4 accent-orange-500 flex-shrink-0"
+                                    />
+
+                                    {/* Property name + type badge */}
+                                    <div className="w-40 flex-shrink-0">
+                                        <div className="text-sm font-medium text-white truncate">{prop.name}</div>
+                                        <div className="text-xs text-gray-500">{prop.type}</div>
+                                    </div>
+
+                                    {/* Label input */}
+                                    <input
+                                        type="text"
+                                        disabled={!isActive}
+                                        value={existing?.label || ''}
+                                        onChange={e => setBriefFields(prev => prev.map(f =>
+                                            f.notionProperty === prop.name ? { ...f, label: e.target.value } : f
+                                        ))}
+                                        className="glass-input flex-1 px-3 py-2 rounded-lg text-sm disabled:opacity-30"
+                                        placeholder="Client-facing label…"
+                                    />
+
+                                    {/* Required toggle */}
+                                    <label className={`flex items-center gap-2 text-xs flex-shrink-0 ${isActive ? 'text-gray-300' : 'text-gray-600'}`}>
+                                        <input
+                                            type="checkbox"
+                                            disabled={!isActive}
+                                            checked={existing?.required || false}
+                                            onChange={() => setBriefFields(prev => prev.map(f =>
+                                                f.notionProperty === prop.name ? { ...f, required: !f.required } : f
+                                            ))}
+                                            className="accent-red-400"
+                                        />
+                                        Required
+                                    </label>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ── Save button ───────────────────────────────────────────── */}
+            <div className="mt-8 flex justify-end gap-4 items-center">
+                {saveStatus === 'saved' && <span className="text-emerald-400 text-sm">✓ Settings saved!</span>}
+                {saveStatus === 'error' && <span className="text-red-400 text-sm">Failed to save.</span>}
+                <button
+                    onClick={handleSaveAll}
+                    disabled={saveStatus === 'saving'}
+                    className="btn-primary px-8 py-3 rounded-xl font-medium disabled:opacity-50"
+                >
+                    {saveStatus === 'saving' ? 'Saving…' : 'Save All Settings'}
+                </button>
+            </div>
+
         </div>
     );
 }
