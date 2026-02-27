@@ -1,39 +1,98 @@
-# Creative Second Brain (CSB)
+# 🎬 wideOS — Creative Second Brain v1.0
 
-## Overview
-Creative Second Brain is a comprehensive system designed for a freelance filmmaker and photographer. It encompasses a public-facing portfolio website, a client portal, a backend for content and project management, and an Adobe Premiere Pro extension to streamline the editing workflow.
+System freelancera do zarządzania projektami filmowymi/fotograficznymi, zsynchronizowany z Notion i Frame.io.
 
-## System Architecture & Workflow
+---
 
-### 1. Web Application (Next.js)
-The web application serves two main purposes:
-*   **Public Website & Portfolio:** A space to showcase work, publish simple blog posts (via a basic CMS editor), and provide a contact form.
-*   **Client Portal:** Clients can register (e.g., after filling out the contact form), log in, and manage their projects.
-    *   **Brief Submission:** Clients can fill out a project brief.
-    *   **File Uploads:** A drag-and-drop interface allows clients to upload source files directly to configured cloud storage (Google Drive or Nextcloud).
-    *   **Project Review:** An integrated Frame.io overlay allows clients to review ongoing and completed work directly within the portal.
+## Funkcjonalności (v1.0)
 
-### 2. Automation & Backend System
-When a client submits a brief and uploads files, the system triggers several automated actions:
-*   **Notion Integration:** A new project is automatically created in Notion (the central database/CRM) containing all brief details.
-*   **Folder Creation:** Corresponding project folders are created in Frame.io and the designated cloud storage (Google Drive/Nextcloud).
-*   **Notifications:** The freelancer receives an immediate notification about the new project.
-*   **Mailing:** The system captures client emails for future mailing lists.
+- **Panel Administratora** (`/admin/dashboard`) — przegląd projektów klientów w czasie rzeczywistym
+- **Ustawienia integracji** (`/admin/settings`) — konfiguracja tokenów Notion, Frame.io, Nextcloud oraz mappingów pól
+- **Tworzenie projektów** — jednym kliknięciem tworzy rekord w Notion i projekt w Frame.io
+- **Lokalna baza projektów** (`data/projects.json`) — przechowuje stan i statusy synchronizacji
+- **Automatyczna synchronizacja z Notion** — w tle co X sekund sprawdza zmiany w bazie Notion i aktualizuje lokalne rekordy
+- **Force Sync / Resync API** — ręczna ponowna synchronizacja nieudanych projektów
+- **API Debug Console** — wbudowana konsola do śledzenia wywołań API na żywo
+- **Bezpieczne zarządzanie kluczami** — tokeny przechowywane tylko lokalnie w `data/config.json` (ignorowanym przez Git) i `.env`
 
-### 3. Local Workflow & Sync
-*   **Storage Synchronization:** The freelancer syncs the cloud storage (Google Drive/Nextcloud) directly to their local editing machine's project folder to access source files.
-*   **Notion To-Do Generation:** Based on the submitted brief, a work structure and task list are automatically generated within the Notion project.
+---
 
-### 4. Adobe Premiere Pro Extension (UXP)
-The custom Premiere Pro plugin connects directly to the system to assist the editing process:
-*   **Task Management:** Displays the to-do list fetched from Notion directly inside Premiere Pro.
-*   **Time Tracking:** Tracks the start and end times for specific tasks and the overall project.
-*   **Dynamic Estimation:** Time data is saved back to Notion to help estimate the time and cost for future, similar projects (dynamic pricing).
-*   **Comment Syncing:** Client comments and feedback from Frame.io are synchronized with Notion to keep all project context in one place.
+## Struktura projektu
 
-## Core Technologies
-*   **Frontend & Web Backend:** Next.js 14 (App Router), TypeScript, Tailwind CSS
-*   **Database & CRM:** Notion API
-*   **Video Review:** Frame.io API
-*   **Cloud Storage:** Google Drive API / Nextcloud API
-*   **Editing Integration:** Adobe UXP (Premiere Pro)
+```
+wideOS/
+├── apps/
+│   ├── web/                   # Next.js 16 — admin panel + API
+│   │   ├── app/admin/         # Strony: dashboard, settings
+│   │   ├── app/api/           # Endpointy REST
+│   │   │   ├── frameio/       # verify, create-client
+│   │   │   ├── notion/        # databases, properties, verify-changes
+│   │   │   ├── projects/      # GET list, POST create, POST sync
+│   │   │   ├── settings/      # config.json read/write
+│   │   │   ├── status/        # connection status check
+│   │   │   └── webhooks/      # Frame.io webhooks
+│   │   └── data/              # (gitignored) config.json, projects.json
+│   └── adobe-extension/       # Adobe UXP plugin dla Premiere Pro
+├── packages/
+│   └── shared/                # Wspólne typy i logika Notion API
+├── docker/                    # Konfiguracja Docker
+├── docs/                      # Dokumentacja
+├── .env.example               # Szablon zmiennych środowiskowych
+└── .gitignore
+```
+
+---
+
+## Pierwsze uruchomienie
+
+### 1. Sklonuj i zainstaluj zależności
+```bash
+git clone <repo-url>
+cd wideOS
+npm install
+```
+
+### 2. Skopiuj i uzupełnij plik `.env`
+```bash
+cp .env.example .env
+# Edytuj .env i wpisz swoje tokeny:
+# NOTION_TOKEN=secret_...
+# FRAME_IO_TOKEN=fio-u-...
+# NEXTCLOUD_URL=https://...
+```
+
+### 3. Uruchom serwer deweloperski
+```bash
+cd apps/web
+npm run dev
+# Otwórz: http://localhost:8080/admin/dashboard
+```
+
+### 4. Skonfiguruj integracje
+Wejdź w `/admin/settings` i:
+1. Wklej token Notion → kliknij **Test Connection** → wybierz bazę danych
+2. Zamapuj kolumny Notion na pola Frame.io
+3. Wklej token Frame.io → kliknij **Test Connection**
+4. Zapisz konfigurację przyciskiem **Save All Integrations**
+
+---
+
+## Zmienne środowiskowe
+
+| Zmienna | Opis |
+|---|---|
+| `NOTION_TOKEN` | Token integracji z Notion (`secret_...`) |
+| `FRAME_IO_TOKEN` | Token dewelopera Frame.io (`fio-u-...`) |
+| `NEXTCLOUD_URL` | URL instancji Nextcloud |
+
+> Tokeny są przechowywane w `apps/web/data/config.json` (runtime) i nigdy nie trafiają do Gita.
+
+---
+
+## Technologie
+
+- **Next.js 16** (App Router, TypeScript)
+- **Notion API** v2022-06-28
+- **Frame.io API** v2
+- **Vanilla CSS** (Glassmorphism design)
+- **Adobe UXP** (Premiere Pro plugin)
