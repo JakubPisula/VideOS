@@ -23,6 +23,7 @@ interface Project {
     notionId?: string;
     notionLastEditedTime?: string;
     properties?: Record<string, string>;
+    assignedTo?: string;
 }
 
 interface CreateResult {
@@ -135,7 +136,7 @@ export default function AdminDashboardPage() {
 
             const controller = new AbortController();
 
-            fetch('/api/notion/verify-changes', { method: 'POST', signal: controller.signal })
+            fetch('/api/notion/sync', { method: 'POST', signal: controller.signal })
                 .then(res => res.json())
                 .then(data => {
                     if (!mountedRef.current) return;
@@ -218,15 +219,15 @@ export default function AdminDashboardPage() {
 
     const handleVerifyNotionChanges = useCallback(async () => {
         setIsSyncingId('verify-all');
-        logDebug('Verifying all projects for remote Notion changes…');
+        logDebug('Running full bidirectional Notion sync…');
         try {
-            const res = await fetch('/api/notion/verify-changes', { method: 'POST' });
+            const res = await fetch('/api/notion/sync', { method: 'POST' });
             const data = await res.json();
             if (data.logs?.length > 0) batchLogDebug(data.logs);
             if (res.ok) { logDebug(data.message); loadProjects(); }
-            else logDebug(`Verification error: ${data.error}`);
+            else logDebug(`Sync error: ${data.error}`);
         } catch (err: any) {
-            logDebug(`Network error during verification: ${err.message}`);
+            logDebug(`Network error during sync: ${err.message}`);
         } finally {
             setIsSyncingId(null);
         }
@@ -358,6 +359,13 @@ export default function AdminDashboardPage() {
                                                                 Notion ↗
                                                             </a>
                                                         )}
+                                                        <a
+                                                            href={`/admin/projects/${project.id}/config`}
+                                                            className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition text-xs"
+                                                            title="Configure Access"
+                                                        >
+                                                            ⚙️ Portal Config
+                                                        </a>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -396,6 +404,9 @@ export default function AdminDashboardPage() {
                     <div className="glass-panel p-8 rounded-3xl">
                         <h3 className="text-lg font-semibold mb-4 text-white">Quick Actions</h3>
                         <div className="flex flex-col gap-3">
+                            <a href="/admin/clients" className="block text-left p-3 w-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 font-medium rounded-xl transition text-sm">
+                                Manage Client Portal Access
+                            </a>
                             <a href="/admin/settings" className="block text-left p-3 w-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 font-medium rounded-xl transition text-sm">
                                 Configure Integrations
                             </a>

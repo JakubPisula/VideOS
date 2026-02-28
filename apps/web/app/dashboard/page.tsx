@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import React, { useState, useEffect, useCallback } from 'react';
 
 interface ProjectData {
     id: string;
@@ -28,9 +27,8 @@ const STATUS_COLORS: Record<string, string> = {
     'Cancelled': 'bg-red-500/20 text-red-300',
 };
 
-function DashboardContent() {
-    const searchParams = useSearchParams();
-    const [projectId, setProjectId] = useState(searchParams.get('projectId') || '');
+export default function ClientDashboardPage() {
+    const [projectId, setProjectId] = useState('');
     const [project, setProject] = useState<ProjectData | null>(null);
     const [briefFields, setBriefFields] = useState<BriefField[]>([]);
     const [loading, setLoading] = useState(false);
@@ -56,21 +54,21 @@ function DashboardContent() {
         }
     }, []);
 
-    // Auto-load when arriving from /register with ?projectId=
+    // Auto-load from URL query param (?projectId=PRJ-...) — safe client-side only
     useEffect(() => {
-        const id = searchParams.get('projectId');
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get('projectId');
         if (id) {
             setProjectId(id);
             doSearch(id);
         }
-    }, [searchParams, doSearch]);
+    }, [doSearch]);
 
     const handleSearch = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         doSearch(projectId);
     }, [projectId, doSearch]);
 
-    // ── Render ───────────────────────────────────────────────────────────────
     return (
         <div className="min-h-screen py-16 px-6">
             <div className="max-w-2xl mx-auto">
@@ -113,7 +111,7 @@ function DashboardContent() {
 
                 {/* Project Card */}
                 {project && (
-                    <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+                    <div className="flex flex-col gap-6">
                         {/* Header Card */}
                         <div className="glass-panel p-8 rounded-3xl">
                             <div className="flex items-start justify-between mb-4">
@@ -125,7 +123,6 @@ function DashboardContent() {
                                 <span className="font-mono text-xs text-gray-500 bg-white/5 px-3 py-1.5 rounded-full">{project.id}</span>
                             </div>
 
-                            {/* Status */}
                             {project.properties.Status && (
                                 <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[project.properties.Status] || 'bg-white/10 text-gray-300'}`}>
                                     {project.properties.Status}
@@ -146,18 +143,12 @@ function DashboardContent() {
                                         </p>
                                     </div>
                                     {!project.briefSubmitted && briefFields.length > 0 && (
-                                        <a
-                                            href={`/brief/${project.id}`}
-                                            className="btn-primary px-4 py-2 rounded-xl text-sm font-medium"
-                                        >
+                                        <a href={`/brief/${project.id}`} className="btn-primary px-4 py-2 rounded-xl text-sm font-medium">
                                             Fill Brief →
                                         </a>
                                     )}
                                     {project.briefSubmitted && (
-                                        <a
-                                            href={`/brief/${project.id}`}
-                                            className="px-4 py-2 rounded-xl text-sm border border-white/10 hover:bg-white/5 transition"
-                                        >
+                                        <a href={`/brief/${project.id}`} className="px-4 py-2 rounded-xl text-sm border border-white/10 hover:bg-white/5 transition">
                                             View / Edit →
                                         </a>
                                     )}
@@ -166,7 +157,7 @@ function DashboardContent() {
                         </div>
 
                         {/* Project Properties */}
-                        {Object.keys(project.properties).length > 0 && (
+                        {Object.entries(project.properties).filter(([, v]) => v && v.trim()).length > 0 && (
                             <div className="glass-panel p-8 rounded-3xl">
                                 <h3 className="text-lg font-semibold mb-4">Project Details</h3>
                                 <div className="grid grid-cols-2 gap-4 text-sm">
@@ -186,16 +177,13 @@ function DashboardContent() {
                             </div>
                         )}
 
-                        {/* Frame.io link if available */}
+                        {/* Frame.io link */}
                         {project.properties['Frame.io'] && (
                             <div className="glass-panel p-6 rounded-3xl border-l-4 border-l-blue-500">
                                 <h3 className="text-lg font-semibold mb-2">Review Link</h3>
                                 <p className="text-gray-400 text-sm mb-4">Your video is ready for review on Frame.io.</p>
-                                <a
-                                    href={project.properties['Frame.io']}
-                                    target="_blank"
-                                    className="btn-primary px-6 py-3 rounded-xl font-medium inline-block"
-                                >
+                                <a href={project.properties['Frame.io']} target="_blank"
+                                    className="btn-primary px-6 py-3 rounded-xl font-medium inline-block">
                                     Open Frame.io Review →
                                 </a>
                             </div>
@@ -203,7 +191,7 @@ function DashboardContent() {
                     </div>
                 )}
 
-                {/* Empty state before search */}
+                {/* Empty state */}
                 {!searched && !project && (
                     <div className="text-center py-12 text-gray-600">
                         <div className="text-4xl mb-4">📋</div>
@@ -212,17 +200,5 @@ function DashboardContent() {
                 )}
             </div>
         </div>
-    );
-}
-
-export default function ClientDashboardPage() {
-    return (
-        <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-gray-400 animate-pulse">Loading…</div>
-            </div>
-        }>
-            <DashboardContent />
-        </Suspense>
     );
 }

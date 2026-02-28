@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 
 interface BriefField {
     notionProperty: string;
@@ -10,44 +9,21 @@ interface BriefField {
     required: boolean;
 }
 
-// ── Input component based on Notion property type ─────────────────────────
-function FieldInput({
-    field,
-    value,
-    onChange,
-}: {
-    field: BriefField;
-    value: string;
-    onChange: (v: string) => void;
-}) {
+function FieldInput({ field, value, onChange }: { field: BriefField; value: string; onChange: (v: string) => void }) {
     const base = "glass-input w-full px-4 py-3 rounded-xl text-sm";
-
-    if (field.type === 'date') {
-        return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} />;
-    }
-    if (field.type === 'number') {
-        return <input type="number" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="0" />;
-    }
-    if (field.type === 'url') {
-        return <input type="url" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="https://..." />;
-    }
-    if (field.type === 'email') {
-        return <input type="email" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="email@example.com" />;
-    }
-    if (field.type === 'rich_text') {
-        return <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} className={`${base} resize-none`} required={field.required} />;
-    }
-    // title, select, multi_select, text
+    if (field.type === 'date') return <input type="date" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} />;
+    if (field.type === 'number') return <input type="number" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="0" />;
+    if (field.type === 'url') return <input type="url" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="https://..." />;
+    if (field.type === 'email') return <input type="email" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} placeholder="email@example.com" />;
+    if (field.type === 'rich_text') return <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} className={`${base} resize-none`} required={field.required} />;
     return <input type="text" value={value} onChange={e => onChange(e.target.value)} className={base} required={field.required} />;
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────
 export default function RegisterPage() {
-    const router = useRouter();
-
-    // Fixed identity fields
-    const [clientName, setClientName] = useState('');
+    // Account fields
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [projectName, setProjectName] = useState('');
 
     // Dynamic Notion fields
@@ -55,18 +31,18 @@ export default function RegisterPage() {
     const [briefAnswers, setBriefAnswers] = useState<Record<string, string>>({});
     const [loadingFields, setLoadingFields] = useState(true);
 
-    // Submission
+    // State
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const [step, setStep] = useState<'form' | 'success'>('form');
+    const [createdProjectId, setCreatedProjectId] = useState('');
 
-    // Load brief field config from API
     useEffect(() => {
         fetch('/api/brief-config')
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
                 if (data.briefFields?.length > 0) {
                     setBriefFields(data.briefFields);
-                    // Init all answers to empty
                     const init: Record<string, string> = {};
                     data.briefFields.forEach((f: BriefField) => { init[f.notionProperty] = ''; });
                     setBriefAnswers(init);
@@ -82,46 +58,68 @@ export default function RegisterPage() {
         setError('');
 
         try {
-            // Step 1: Create the project (provisions Notion page + local DB entry)
-            const createRes = await fetch('/api/projects/create', {
+            // 1. Create account
+            const regRes = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    clientName,
-                    projectName,
-                    description: email, // store email in description for now
-                }),
+                body: JSON.stringify({ email, password, name, role: 'client' }),
             });
-            const createData = await createRes.json();
-
-            if (!createRes.ok) {
-                setError(createData.error || 'Failed to create project. Please try again.');
+            const regData = await regRes.json();
+            if (!regRes.ok) {
+                setError(regData.error || 'Registration failed.');
                 return;
             }
 
+            // 2. Create project
+            const createRes = await fetch('/api/projects/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientName: name, projectName, description: email }),
+            });
+            const createData = await createRes.json();
             const projectId = createData.projectId || createData.project?.id;
 
-            // Step 2: If there are brief answers and a project ID, submit the brief
+            // 3. Submit brief if fields exist
             if (projectId && briefFields.length > 0) {
-                // Merge email into answers
-                const allAnswers = { ...briefAnswers };
                 await fetch(`/api/projects/${projectId}/brief`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ answers: allAnswers }),
+                    body: JSON.stringify({ answers: briefAnswers }),
                 });
             }
 
-            // Redirect to client portal with their project ID pre-filled
-            router.push(`/dashboard?projectId=${projectId}`);
+            setCreatedProjectId(projectId || '');
+            setStep('success');
 
         } catch (err: any) {
             setError(`Network error: ${err.message}`);
         } finally {
             setSubmitting(false);
         }
-    }, [clientName, email, projectName, briefFields, briefAnswers, router]);
+    }, [name, email, password, projectName, briefFields, briefAnswers]);
 
+    // ── Success screen ─────────────────────────────────────────────────────
+    if (step === 'success') {
+        return (
+            <div className="min-h-screen flex items-center justify-center p-8">
+                <div className="glass-panel p-12 rounded-3xl max-w-lg text-center">
+                    <div className="text-6xl mb-6">🎉</div>
+                    <h2 className="text-3xl font-bold text-white mb-3">Account Created!</h2>
+                    <p className="text-gray-300 mb-2">Welcome, <strong>{name}</strong>.</p>
+                    {createdProjectId && (
+                        <p className="text-sm text-gray-400 mb-6">
+                            Your Project ID: <code className="bg-white/10 px-2 py-1 rounded text-orange-300">{createdProjectId}</code>
+                        </p>
+                    )}
+                    <a href="/client" className="btn-primary px-8 py-3 rounded-xl font-medium inline-block">
+                        Go to your Portal →
+                    </a>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Registration form ──────────────────────────────────────────────────
     return (
         <div className="min-h-screen flex items-center justify-center p-8 py-20">
             <div className="glass-panel p-10 rounded-3xl w-full max-w-2xl relative overflow-hidden">
@@ -129,101 +127,72 @@ export default function RegisterPage() {
                     Start Your Project
                 </h2>
                 <p className="text-gray-400 mb-8 max-w-lg text-sm">
-                    Fill in your details and project brief below. This automatically creates your dedicated client space.
+                    Create your account and tell us about your project.
                 </p>
 
-                <form onSubmit={handleSubmit} className="flex flex-col gap-6 relative z-10">
-
-                    {/* ── Identity fields (always shown) ── */}
+                <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+                    {/* Account fields */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div>
-                            <label className="block text-sm font-medium mb-2 text-gray-300">
-                                Full Name / Company <span className="text-red-400">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={clientName}
-                                onChange={e => setClientName(e.target.value)}
-                                className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                                placeholder="Nike, Jan Kowalski…"
-                                required
-                            />
+                            <label className="block text-sm font-medium mb-2 text-gray-300">Full Name / Company <span className="text-red-400">*</span></label>
+                            <input type="text" value={name} onChange={e => setName(e.target.value)}
+                                className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="Nike, Jan Kowalski…" required />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium mb-2 text-gray-300">
-                                Email Address <span className="text-red-400">*</span>
-                            </label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={e => setEmail(e.target.value)}
-                                className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                                placeholder="jan@firma.pl"
-                                required
-                            />
+                            <label className="block text-sm font-medium mb-2 text-gray-300">Email <span className="text-red-400">*</span></label>
+                            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                                className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="jan@firma.pl" required />
                         </div>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium mb-2 text-gray-300">
-                            Project Name <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={projectName}
-                            onChange={e => setProjectName(e.target.value)}
-                            className="glass-input w-full px-4 py-3 rounded-xl text-sm"
-                            placeholder="Summer Campaign 2026, Reklama TV…"
-                            required
-                        />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                            <label className="block text-sm font-medium mb-2 text-gray-300">Password <span className="text-red-400">*</span></label>
+                            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                                className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="Min. 4 characters" required minLength={4} />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-2 text-gray-300">Project Name <span className="text-red-400">*</span></label>
+                            <input type="text" value={projectName} onChange={e => setProjectName(e.target.value)}
+                                className="glass-input w-full px-4 py-3 rounded-xl text-sm" placeholder="Summer Campaign 2026" required />
+                        </div>
                     </div>
 
-                    {/* ── Dynamic Notion DB fields ── */}
+                    {/* Dynamic Notion fields */}
                     {!loadingFields && briefFields.length > 0 && (
-                        <>
-                            <div className="border-t border-white/10 pt-6">
-                                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-5">Project Details</p>
-                                <div className="flex flex-col gap-5">
-                                    {briefFields.map(field => (
-                                        <div key={field.notionProperty}>
-                                            <label className="block text-sm font-medium mb-2 text-gray-300">
-                                                {field.label || field.notionProperty}
-                                                {field.required && <span className="text-red-400 ml-1">*</span>}
-                                            </label>
-                                            <FieldInput
-                                                field={field}
-                                                value={briefAnswers[field.notionProperty] || ''}
-                                                onChange={v => setBriefAnswers(prev => ({ ...prev, [field.notionProperty]: v }))}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
+                        <div className="border-t border-white/10 pt-6">
+                            <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-5">Project Details</p>
+                            <div className="flex flex-col gap-5">
+                                {briefFields.map(field => (
+                                    <div key={field.notionProperty}>
+                                        <label className="block text-sm font-medium mb-2 text-gray-300">
+                                            {field.label || field.notionProperty}
+                                            {field.required && <span className="text-red-400 ml-1">*</span>}
+                                        </label>
+                                        <FieldInput field={field}
+                                            value={briefAnswers[field.notionProperty] || ''}
+                                            onChange={v => setBriefAnswers(prev => ({ ...prev, [field.notionProperty]: v }))} />
+                                    </div>
+                                ))}
                             </div>
-                        </>
+                        </div>
                     )}
 
-                    {loadingFields && (
-                        <div className="text-gray-500 text-sm animate-pulse">Loading project fields…</div>
-                    )}
+                    {loadingFields && <div className="text-gray-500 text-sm animate-pulse">Loading project fields…</div>}
 
                     {error && (
                         <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{error}</div>
                     )}
 
-                    <button
-                        type="submit"
-                        disabled={submitting}
-                        className="btn-primary w-full py-4 rounded-xl font-medium mt-2 text-lg disabled:opacity-50"
-                    >
-                        {submitting ? 'Creating your project…' : 'Submit Brief & Create Project →'}
+                    <button type="submit" disabled={submitting}
+                        className="btn-primary w-full py-4 rounded-xl font-medium mt-2 text-lg disabled:opacity-50">
+                        {submitting ? 'Creating your account…' : 'Create Account & Start Project →'}
                     </button>
                 </form>
 
                 <p className="text-center mt-6 text-sm text-gray-400">
-                    Already a client?{' '}
-                    <a href="/dashboard" className="text-blue-400 hover:text-blue-300">
-                        View your project →
-                    </a>
+                    Already have an account?{' '}
+                    <a href="/login" className="text-blue-400 hover:text-blue-300">Sign in →</a>
                 </p>
             </div>
         </div>

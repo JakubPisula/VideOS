@@ -68,8 +68,8 @@ function FieldInput({
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────
-export default function BriefPage({ params }: { params: { projectId: string } }) {
-    const { projectId } = params;
+export default function BriefPage({ params }: { params: Promise<{ projectId: string }> }) {
+    const [projectId, setProjectId] = useState<string | null>(null);
 
     const [project, setProject] = useState<ProjectInfo | null>(null);
     const [briefFields, setBriefFields] = useState<BriefField[]>([]);
@@ -79,7 +79,12 @@ export default function BriefPage({ params }: { params: { projectId: string } })
     const [submitting, setSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
 
+    useEffect(() => {
+        params.then(p => setProjectId(p.projectId));
+    }, [params]);
+
     const loadBrief = useCallback(async () => {
+        if (!projectId) return;
         try {
             const res = await fetch(`/api/projects/${projectId}/brief`);
             const data = await res.json();

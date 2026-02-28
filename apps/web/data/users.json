@@ -1,0 +1,21 @@
+[
+  {
+    "id": "usr_adm_001",
+    "email": "admin@admin.com",
+    "passwordHash": "2157fe2bf74307ea6ccc4c4171ce2adc:c3f76e2621ea45a509b4b9f6f2e6697bebd178d0fd6220a04c719732171f91f7d232748733de061759b0deb4959b10f94c33b4851ca91935fd66d4c1d4a60448",
+    "role": "admin",
+    "name": "Admin",
+    "assignedProjects": [],
+    "createdAt": "2026-02-27T23:52:46.789Z"
+  },
+  {
+    "id": "usr_cli_mm5ktieg",
+    "email": "elo@wp.pl",
+    "passwordHash": "09a91feed5aa7591d02a59425dcac8ed:166b2f6ce24aba3977552e88e955704ded0b595c217107a79db4625347b1aaf071b22f77b1a3f1015dfeb4fff70e1fb644b282261bfa233b7a1a1413c651d165",
+    "role": "client",
+    "name": "Jakub",
+    "assignedProjects": [],
+    "storageFolder": "/uploads/usr_cli_mm5ktieg",
+    "createdAt": "2026-02-28T00:22:01.576Z"
+  }
+]

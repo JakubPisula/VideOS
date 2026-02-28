@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { requireAuth } from '@/lib/middleware';
 
 // Load our configuration
 const getConfig = () => {
@@ -167,6 +168,10 @@ export async function POST(request: Request) {
             }
         }
 
+        const sessionRes = await requireAuth(request);
+        if (sessionRes instanceof NextResponse) return sessionRes;
+        const session = sessionRes;
+
         const newProjectEntry: any = {
             id: `PRJ-${Date.now().toString().slice(-6)}`,
             clientName,
@@ -179,6 +184,16 @@ export async function POST(request: Request) {
             frameioSynced: !!frameioResponse,
         };
 
+        if (frameioResponse) {
+            newProjectEntry.frameioId = frameioResponse.id;
+            newProjectEntry.frameioAssetId = frameioResponse.root_asset_id;
+        }
+
+        if (session.role === 'client') {
+            newProjectEntry.assignedTo = session.userId;
+            newProjectEntry.clientVisibility = Object.keys(localProperties); // default: all fields
+        }
+
         if (notionResponse) {
             newProjectEntry.notionId = notionResponse.id;
             newProjectEntry.notionLastEditedTime = notionResponse.last_edited_time;
@@ -186,6 +201,18 @@ export async function POST(request: Request) {
 
         localProjects.unshift(newProjectEntry); // Add to beginning of array
         fs.writeFileSync(projectsPath, JSON.stringify(localProjects, null, 2), 'utf8');
+
+        // Append to user's assignedProjects
+        if (session.role === 'client') {
+            const { getUsers, saveUsers } = await import('@/lib/auth');
+            const users = getUsers();
+            const userIdx = users.findIndex(u => u.id === session.userId);
+            if (userIdx !== -1) {
+                if (!users[userIdx].assignedProjects) users[userIdx].assignedProjects = [];
+                users[userIdx].assignedProjects!.push(newProjectEntry.id);
+                saveUsers(users);
+            }
+        }
 
         return NextResponse.json({
             success: true,

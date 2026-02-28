@@ -13,11 +13,11 @@ const getConfig = () => {
 // Saves to local project + syncs to Notion
 export async function POST(
     request: Request,
-    { params }: { params: { projectId: string } }
+    { params }: { params: Promise<{ projectId: string }> }
 ) {
     try {
         const { answers } = await request.json();
-        const { projectId } = params;
+        const { projectId } = await params;
 
         if (!answers || typeof answers !== 'object') {
             return NextResponse.json({ error: 'Invalid answers payload' }, { status: 400 });
@@ -104,11 +104,16 @@ export async function POST(
 // GET /api/projects/[projectId]/brief
 // Returns the project's current properties + which fields are configured for brief
 export async function GET(
-    _request: Request,
-    { params }: { params: { projectId: string } }
+    request: Request,
+    { params }: { params: Promise<{ projectId: string }> }
 ) {
     try {
-        const { projectId } = params;
+        const { requireAuth } = await import('@/lib/middleware');
+        const sessionRes = await requireAuth(request);
+        if (sessionRes instanceof NextResponse) return sessionRes;
+        const session = sessionRes;
+
+        const { projectId } = await params;
         const config = getConfig();
         const projectsPath = path.join(process.cwd(), 'data', 'projects.json');
 
@@ -123,6 +128,24 @@ export async function GET(
             return NextResponse.json({ error: 'Project not found' }, { status: 404 });
         }
 
+        // Enforce permissions: admin can see all, client can only see their assigned projects
+        if (session.role === 'client' && project.assignedTo !== session.userId) {
+            return NextResponse.json({ error: 'Access denied to this project.' }, { status: 403 });
+        }
+
+        // Apply field visibility rules for clients
+        let properties = project.properties || {};
+        if (session.role === 'client') {
+            const visibility = project.clientVisibility || Object.keys(properties);
+            const filteredProps: Record<string, string> = {};
+            for (const key of visibility) {
+                if (properties[key] !== undefined) {
+                    filteredProps[key] = properties[key];
+                }
+            }
+            properties = filteredProps;
+        }
+
         const briefFields = config?.briefFields || [];
 
         return NextResponse.json({
@@ -132,7 +155,7 @@ export async function GET(
                 projectName: project.projectName,
                 briefSubmitted: project.briefSubmitted || false,
                 briefSubmittedAt: project.briefSubmittedAt,
-                properties: project.properties || {},
+                properties,
             },
             briefFields,
         });
